@@ -149,6 +149,7 @@ static FORCE_INLINE void LZ4_writeLE16(void *memPtr, U16 value)
  */
 #define LZ4_memcpy(dst, src, size) __builtin_memcpy(dst, src, size)
 #define LZ4_memmove(dst, src, size) __builtin_memmove(dst, src, size)
+#define LZ4_memset(dst, val, count) __builtin_memset(dst, val, count)
 
 static FORCE_INLINE void LZ4_copy8(void *dst, const void *src)
 {
