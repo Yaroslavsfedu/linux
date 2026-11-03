@@ -367,7 +367,7 @@ _next_match:
 				/* Check output buffer overflow */
 				(unlikely(op +
 					(1 + LASTLITERALS) +
-					(matchCode >> 8) > olimit)))
+					(matchCode + 240) / 255 > olimit)))
 				return 0;
 
 			if (matchCode >= ML_MASK) {
