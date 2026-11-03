@@ -57,11 +57,14 @@
  * in the output buffer, so every sequence otherwise falls back to the
  * "safe" decoding loop below.
  *
- * Enabled on x86/x64 only, where decompression speed improves by
- * up to 20%.
+ * Enabled on x86/x64 (speedup up to +20%) and, since v1.9.2, on aarch64
+ * when built with gcc. On aarch64 it is kept disabled for clang, as on
+ * certain mobile chipsets it reduces performance; see upstream PR 707.
  */
 #ifndef LZ4_FAST_DEC_LOOP
 #  if defined(__i386__) || defined(__x86_64__)
+#    define LZ4_FAST_DEC_LOOP 1
+#  elif defined(__aarch64__) && !defined(__clang__)
 #    define LZ4_FAST_DEC_LOOP 1
 #  else
 #    define LZ4_FAST_DEC_LOOP 0
@@ -156,30 +159,37 @@ static FORCE_INLINE void LZ4_wildCopy32(void *dstPtr, const void *srcPtr,
 	} while (d < e);
 }
 
+/*
+ * LZ4_memcpy_using_offset()  presumes :
+ * - dstEnd >= dstPtr + MINMATCH
+ * - there is at least 8 bytes available to write after dstEnd
+ */
 static FORCE_INLINE void LZ4_memcpy_using_offset(BYTE *dstPtr,
 	const BYTE *srcPtr, BYTE *dstEnd, const size_t offset)
 {
 	BYTE v[8];
 
+	assert(dstEnd >= dstPtr + MINMATCH);
+	LZ4_write32(dstPtr, 0);	/* silence an msan warning when offset==0 */
+
 	switch (offset) {
 	case 1:
 		LZ4_memset(v, *srcPtr, 8);
-		goto copy_loop;
+		break;
 	case 2:
 		LZ4_memcpy(v, srcPtr, 2);
 		LZ4_memcpy(&v[2], srcPtr, 2);
 		LZ4_memcpy(&v[4], &v[0], 4);
-		goto copy_loop;
+		break;
 	case 4:
 		LZ4_memcpy(v, srcPtr, 4);
 		LZ4_memcpy(&v[4], srcPtr, 4);
-		goto copy_loop;
+		break;
 	default:
 		LZ4_memcpy_using_offset_base(dstPtr, srcPtr, dstEnd, offset);
 		return;
 	}
 
-copy_loop:
 	LZ4_memcpy(dstPtr, v, 8);
 	dstPtr += 8;
 	while (dstPtr < dstEnd) {
@@ -251,8 +261,11 @@ static FORCE_INLINE int LZ4_decompress_generic(
 		return -1;
 
 	/* Empty output buffer */
-	if ((endOnInput) && (unlikely(outputSize == 0)))
+	if ((endOnInput) && (unlikely(outputSize == 0))) {
+		if (partialDecoding)
+			return 0;
 		return ((srcSize == 1) && (*ip == 0)) ? 0 : -1;
+	}
 
 	if ((!endOnInput) && (unlikely(outputSize == 0)))
 		return (*ip == 0 ? 1 : -1);
@@ -363,19 +376,19 @@ static FORCE_INLINE int LZ4_decompress_generic(
 		offset = LZ4_readLE16(ip);
 		ip += 2;
 		match = op - offset;
+		assert(match <= op);
 
 		/* get matchlength */
 		length = token & ML_MASK;
 
-		if ((checkOffset) &&
-		    (unlikely(match + dictSize < lowPrefix))) {
-			/* Error : offset outside buffers */
-			goto _output_error;
-		}
-
 		if (length == ML_MASK) {
 			variable_length_error error = ok;
 
+			if ((checkOffset) &&
+			    (unlikely(match + dictSize < lowPrefix))) {
+				/* Error : offset outside buffers */
+				goto _output_error;
+			}
 			length += read_variable_length(&ip,
 				iend - LASTLITERALS + 1, endOnInput, 0,
 				&error);
@@ -401,8 +414,12 @@ static FORCE_INLINE int LZ4_decompress_generic(
 			 * Fastpath check: Avoids a branch in
 			 * LZ4_wildCopy32 if true
 			 */
-			if (!(dict == usingExtDict) || (match >= lowPrefix)) {
+			if ((dict == withPrefix64k) || (match >= lowPrefix)) {
 				if (offset >= 8) {
+					assert(match >= lowPrefix);
+					assert(match <= op);
+					assert(op + 18 <= oend);
+
 					LZ4_memcpy(op, match, 8);
 					LZ4_memcpy(op + 8, match + 8, 8);
 					LZ4_memcpy(op + 16, match + 16, 2);
@@ -412,14 +429,21 @@ static FORCE_INLINE int LZ4_decompress_generic(
 			}
 		}
 
+		if ((checkOffset) &&
+		    (unlikely(match + dictSize < lowPrefix))) {
+			/* Error : offset outside buffers */
+			goto _output_error;
+		}
+
 		/* match starting within external dictionary */
 		if ((dict == usingExtDict) && (match < lowPrefix)) {
 			if (unlikely(op + length > oend - LASTLITERALS)) {
 				if (partialDecoding) {
+					/* reach end of buffer */
 					length = min(length,
 						(size_t)(oend - op));
 				} else {
-					/* doesn't respect parsing restriction */
+					/* end-of-block condition violated */
 					goto _output_error;
 				}
 			}
@@ -573,23 +597,44 @@ safe_literal_copy:
 			|| (ip + length > iend - (2 + 1 + LASTLITERALS))))
 			|| ((!endOnInput) && (cpy > oend - WILDCOPYLENGTH))) {
 			if (partialDecoding) {
+				/*
+				 * We've either hit the input parsing
+				 * restriction or the output parsing
+				 * restriction. Since we are partial
+				 * decoding we may be in this block because
+				 * of the output parsing restriction, which
+				 * is not valid since the output buffer is
+				 * allowed to be undersized.
+				 */
+				assert(endOnInput);
+				/*
+				 * If we're in this block because of the
+				 * input parsing condition, then we must
+				 * be on the last sequence (or invalid),
+				 * so we must check that we exactly
+				 * consume the input.
+				 */
+				if ((ip + length >
+				     iend - (2 + 1 + LASTLITERALS)) &&
+				    (ip + length != iend)) {
+					goto _output_error;
+				}
+				assert(ip + length <= iend);
+				/*
+				 * We are finishing in the middle of a
+				 * literals segment. Break after the copy.
+				 */
 				if (cpy > oend) {
 					/*
 					 * Partial decoding :
-					 * stop in the middle of literal segment
+					 * stop in the middle of literal
+					 * segment
 					 */
 					cpy = oend;
-					length = oend - op;
+					assert(op <= oend);
+					length = (size_t)(oend - op);
 				}
-				if ((endOnInput)
-					&& (ip + length > iend)) {
-					/*
-					 * Error :
-					 * read attempt beyond
-					 * end of input buffer
-					 */
-					goto _output_error;
-				}
+				assert(ip + length <= iend);
 			} else {
 				if ((!endOnInput)
 					&& (cpy != oend)) {
@@ -622,11 +667,11 @@ safe_literal_copy:
 			/*
 			 * Necessarily EOF when !partialDecoding.
 			 * When partialDecoding, it is EOF if we've either
-			 * filled the output buffer or can't proceed with
-			 * reading an offset for following match.
+			 * filled the output buffer or hit the input
+			 * parsing restriction.
 			 */
 			if (!partialDecoding || (cpy == oend) ||
-			    (ip >= (iend - 2)))
+			    (ip == iend))
 				break;
 		} else {
 			/* may overwrite up to WILDCOPYLENGTH beyond cpy */
@@ -644,23 +689,6 @@ safe_literal_copy:
 		length = token & ML_MASK;
 
 _copy_match:
-		if ((checkOffset) && (unlikely(match + dictSize < lowPrefix))) {
-			/* Error : offset outside buffers */
-			goto _output_error;
-		}
-
-		/* costs ~1%; silence an msan warning when offset == 0 */
-		/*
-		 * note : when partialDecoding, there is no guarantee that
-		 * at least 4 bytes remain available in output buffer
-		 */
-		if (!partialDecoding) {
-			assert(oend > op);
-			assert(oend - op >= 4);
-
-			LZ4_write32(op, (U32)offset);
-		}
-
 		if (length == ML_MASK) {
 			variable_length_error error = ok;
 
@@ -684,6 +712,11 @@ _copy_match:
 #if LZ4_FAST_DEC_LOOP
 safe_match_copy:
 #endif
+		if ((checkOffset) && (unlikely(match + dictSize < lowPrefix))) {
+			/* Error : offset outside buffers */
+			goto _output_error;
+		}
+
 		/* match starting within external dictionary */
 		if ((dict == usingExtDict) && (match < lowPrefix)) {
 			if (unlikely(op + length > oend - LASTLITERALS)) {
@@ -727,6 +760,8 @@ safe_match_copy:
 			continue;
 		}
 
+		assert(match >= lowPrefix);
+
 		/* copy match within block */
 		cpy = op + length;
 
@@ -755,6 +790,8 @@ safe_match_copy:
 		}
 
 		if (unlikely(offset < 8)) {
+			LZ4_write32(op, 0);
+			/* silence msan warning when offset == 0 */
 			op[0] = match[0];
 			op[1] = match[1];
 			op[2] = match[2];
