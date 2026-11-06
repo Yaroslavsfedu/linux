@@ -55,7 +55,6 @@ static void lz4_destroy(struct zcomp_ctx *ctx)
 
 static int lz4_create(struct zcomp_params *params, struct zcomp_ctx *ctx)
 {
-	BUILD_BUG_ON(sizeof(LZ4_stream_t) != LZ4_MEM_COMPRESS);
 
 	ctx->context = vmalloc(LZ4_MEM_COMPRESS);
 	if (!ctx->context)

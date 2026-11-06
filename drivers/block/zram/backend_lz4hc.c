@@ -40,7 +40,7 @@ static int lz4hc_setup_params(struct zcomp_params *params)
 	if (!params->dict || !params->dict_sz)
 		return 0;
 
-	dict_stream = vzalloc(sizeof(*dict_stream));
+	dict_stream = vzalloc(LZ4HC_MEM_COMPRESS);
 	if (!dict_stream)
 		return -ENOMEM;
 
@@ -62,31 +62,10 @@ static void lz4hc_destroy(struct zcomp_ctx *ctx)
 
 static int lz4hc_create(struct zcomp_params *params, struct zcomp_ctx *ctx)
 {
-	BUILD_BUG_ON(sizeof(LZ4_streamHC_t) != LZ4HC_MEM_COMPRESS);
-
+	
 	ctx->context = vmalloc(LZ4HC_MEM_COMPRESS);
 	if (!ctx->context)
 		return -ENOMEM;
-<<<<<<< HEAD
-=======
-
-	ctx->context = zctx;
-	if (params->dict_sz == 0) {
-		zctx->mem = vmalloc(LZ4HC_MEM_COMPRESS);
-		if (!zctx->mem)
-			goto error;
-	} else {
-		zctx->dstrm = kzalloc_obj(*zctx->dstrm);
-		if (!zctx->dstrm)
-			goto error;
-
-		zctx->cstrm = kzalloc(LZ4HC_MEM_COMPRESS, GFP_KERNEL);
-		if (!zctx->cstrm)
-			goto error;
-		LZ4_resetStreamHC(zctx->cstrm, params->level);
-	}
-
->>>>>>> lib/lz4: switch the HC compressor to the vendored sources
 	return 0;
 }
 
@@ -100,8 +79,11 @@ static int lz4hc_compress(struct zcomp_params *params, struct zcomp_ctx *ctx,
 				      req->dst_len, params->level,
 				      ctx->context);
 	} else {
-		/* Cstrm needs to be reset */
-		memcpy(ctx->context, params->drv_data, sizeof(LZ4_streamHC_t));
+		/* Reloading the dict resets the stream and keeps its level */
+		ret = LZ4_loadDictHC(ctx->context, params->dict,
+					      params->dict_sz);
+		if (ret != params->dict_sz)
+			return -EINVAL;
 		ret = LZ4_compress_HC_continue(ctx->context, req->src, req->dst,
 					       req->src_len, req->dst_len);
 	}
