@@ -589,7 +589,7 @@ static void exit_mm(void)
 	task_unlock(current);
 	mmap_read_unlock(mm);
 	mm_update_next_owner(mm);
-	mmput(mm);
+	mmput_async(mm);
 	if (test_thread_flag(TIF_MEMDIE))
 		exit_oom_victim();
 }
