@@ -174,6 +174,11 @@ ifdef CONFIG_MZEN4
         KBUILD_RUSTFLAGS += -Ctarget-cpu=znver4
 endif
 
+ifdef CONFIG_MZEN5
+        KBUILD_CFLAGS += -march=znver5
+        KBUILD_RUSTFLAGS += -Ctarget-cpu=znver5
+endif
+
 ifdef CONFIG_GENERIC_CPU
 ifeq ($(CONFIG_X86_64_VERSION),1)
         KBUILD_CFLAGS += -march=x86-64 -mtune=generic
