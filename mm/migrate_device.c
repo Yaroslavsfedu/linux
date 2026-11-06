@@ -874,7 +874,7 @@ static int migrate_vma_insert_huge_pmd_page(struct migrate_vma *migrate,
 	else if (!pmd_none(*pmdp))
 		goto unlock_abort;
 
-	add_mm_counter(vma->vm_mm, MM_ANONPAGES, HPAGE_PMD_NR);
+	add_mm_counter_other(vma->vm_mm, MM_ANONPAGES, HPAGE_PMD_NR);
 	folio_add_new_anon_rmap(folio, vma, addr, RMAP_EXCLUSIVE);
 	if (!folio_is_zone_device(folio))
 		folio_add_lru_vma(folio, vma);
@@ -1083,7 +1083,7 @@ static void migrate_vma_insert_page(struct migrate_vma *migrate,
 	if (userfaultfd_missing(vma))
 		goto unlock_abort;
 
-	inc_mm_counter(mm, MM_ANONPAGES);
+	inc_mm_counter_other(mm, MM_ANONPAGES);
 	folio_add_new_anon_rmap(folio, vma, addr, RMAP_EXCLUSIVE);
 	if (!folio_is_zone_device(folio))
 		folio_add_lru_vma(folio, vma);

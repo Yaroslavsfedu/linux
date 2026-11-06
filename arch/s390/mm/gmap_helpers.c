@@ -111,7 +111,7 @@ __context_unsafe(/* pte_unmap_unlock() not instrumented */)
 		return;
 	sl = softleaf_from_pte(*ptep);
 	if (pte_swap(*ptep) && softleaf_is_swap(sl)) {
-		dec_mm_counter(mm, MM_SWAPENTS);
+		dec_mm_counter_other(mm, MM_SWAPENTS);
 		swap_put_entries_direct(sl, 1);
 		pte_clear(mm, vmaddr, ptep);
 	}

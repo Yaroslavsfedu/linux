@@ -2115,7 +2115,7 @@ static bool ttu_anon_lazyfree_folio(struct vm_area_struct *vma,
 	if (ref_count != 1 + map_count)
 		return false;
 
-	add_mm_counter(vma->vm_mm, MM_ANONPAGES, -nr_pages);
+	add_mm_counter_other(vma->vm_mm, MM_ANONPAGES, -nr_pages);
 	return true;
 }
 
@@ -2172,8 +2172,8 @@ static bool ttu_anon_swapbacked_folio(struct vm_area_struct *vma,
 	}
 
 	mm_prepare_for_swap_entries(mm);
-	dec_mm_counter(mm, MM_ANONPAGES);
-	inc_mm_counter(mm, MM_SWAPENTS);
+	dec_mm_counter_other(mm, MM_ANONPAGES);
+	inc_mm_counter_other(mm, MM_SWAPENTS);
 	set_pte_at(mm, address, ptep,
 		   swp_pte_prepare(entry, pteval, anon_exclusive));
 	return true;
@@ -2361,7 +2361,7 @@ static bool try_to_unmap_one(struct folio *folio, struct vm_area_struct *vma,
 		/* unmap_poisoned_folio() only refs order-0 folios */
 		if (folio_test_hwpoison(folio) && (flags & TTU_HWPOISON)) {
 			pteval = swp_entry_to_pte(make_hwpoison_entry(page));
-			dec_mm_counter(mm, mm_counter(folio));
+			dec_mm_counter_other(mm, mm_counter(folio));
 			set_pte_at(mm, address, pvmw.pte, pteval);
 		} else if (likely(pte_present(pteval)) && pte_unused(pteval) &&
 			   !userfaultfd_armed(vma)) {
@@ -2375,7 +2375,7 @@ static bool try_to_unmap_one(struct folio *folio, struct vm_area_struct *vma,
 			 * migration) will not expect userfaults on already
 			 * copied pages.
 			 */
-			dec_mm_counter(mm, mm_counter(folio));
+			dec_mm_counter_other(mm, mm_counter(folio));
 		} else if (folio_test_anon(folio)) {
 			if (!ttu_anon_folio(vma, folio, page, address,
 					    pvmw.pte, pteval, nr_pages)) {
@@ -2396,7 +2396,7 @@ static bool try_to_unmap_one(struct folio *folio, struct vm_area_struct *vma,
 			 *
 			 * See Documentation/mm/mmu_notifier.rst
 			 */
-			add_mm_counter(mm, mm_counter_file(folio), -nr_pages);
+			add_mm_counter_other(mm, mm_counter_file(folio), -nr_pages);
 		}
 finish_unmap:
 		folio_remove_rmap_ptes(folio, page, nr_pages, vma);
@@ -2673,7 +2673,7 @@ static bool try_to_migrate_one(struct folio *folio, struct vm_area_struct *vma,
 				set_huge_pte_at(mm, address, pvmw.pte, pteval,
 						hsz);
 			} else {
-				dec_mm_counter(mm, mm_counter(folio));
+				dec_mm_counter_other(mm, mm_counter(folio));
 				set_pte_at(mm, address, pvmw.pte, pteval);
 			}
 		} else if (likely(pte_present(pteval)) && pte_unused(pteval) &&
@@ -2688,7 +2688,7 @@ static bool try_to_migrate_one(struct folio *folio, struct vm_area_struct *vma,
 			 * migration) will not expect userfaults on already
 			 * copied pages.
 			 */
-			dec_mm_counter(mm, mm_counter(folio));
+			dec_mm_counter_other(mm, mm_counter(folio));
 		} else {
 			swp_entry_t entry;
 			pte_t swp_pte;
