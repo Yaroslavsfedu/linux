@@ -34,7 +34,7 @@ static int lz4_setup_params(struct zcomp_params *params)
 	if (!params->dict || !params->dict_sz)
 		return 0;
 
-	dict_stream = vzalloc(sizeof(*dict_stream));
+	dict_stream = vzalloc(LZ4_MEM_COMPRESS);
 	if (!dict_stream)
 		return -ENOMEM;
 
@@ -74,7 +74,7 @@ static int lz4_compress(struct zcomp_params *params, struct zcomp_ctx *ctx,
 					ctx->context);
 	} else {
 		/* Cstrm needs to be reset */
-		memcpy(ctx->context, params->drv_data, sizeof(LZ4_stream_t));
+		memcpy(ctx->context, params->drv_data, LZ4_MEM_COMPRESS);
 		ret = LZ4_compress_fast_continue(ctx->context, req->src,
 						 req->dst, req->src_len,
 						 req->dst_len, params->level);

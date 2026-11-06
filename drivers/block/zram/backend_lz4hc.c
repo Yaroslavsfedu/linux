@@ -67,6 +67,26 @@ static int lz4hc_create(struct zcomp_params *params, struct zcomp_ctx *ctx)
 	ctx->context = vmalloc(LZ4HC_MEM_COMPRESS);
 	if (!ctx->context)
 		return -ENOMEM;
+<<<<<<< HEAD
+=======
+
+	ctx->context = zctx;
+	if (params->dict_sz == 0) {
+		zctx->mem = vmalloc(LZ4HC_MEM_COMPRESS);
+		if (!zctx->mem)
+			goto error;
+	} else {
+		zctx->dstrm = kzalloc_obj(*zctx->dstrm);
+		if (!zctx->dstrm)
+			goto error;
+
+		zctx->cstrm = kzalloc(LZ4HC_MEM_COMPRESS, GFP_KERNEL);
+		if (!zctx->cstrm)
+			goto error;
+		LZ4_resetStreamHC(zctx->cstrm, params->level);
+	}
+
+>>>>>>> lib/lz4: switch the HC compressor to the vendored sources
 	return 0;
 }
 
